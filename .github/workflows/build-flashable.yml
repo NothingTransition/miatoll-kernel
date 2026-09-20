@@ -68,11 +68,12 @@ jobs:
           scripts/config --file out/.config --disable LTO_CLANG
           scripts/config --file out/.config --disable LTO
           scripts/config --file out/.config --disable THINLTO
+          scripts/config --file out/.config --disable RELR
           make O=out ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
             CROSS_COMPILE_ARM32="$CROSS_COMPILE_ARM32" \
             CLANG_TRIPLE="$CLANG_TRIPLE" CC=clang olddefconfig
 
-      - name: Build kernel and device trees
+      - name: Build kernel image
         id: build
         continue-on-error: false
         env:
@@ -90,7 +91,7 @@ jobs:
             AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy \
             OBJDUMP=llvm-objdump READELF=llvm-readelf STRIP=llvm-strip \
             LLVM_IAS=1 KBUILD_BUILD_USER=github KBUILD_BUILD_HOST=actions \
-            Image.gz dtbs 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+            Image.gz 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
 
           test -s out/arch/arm64/boot/Image.gz
 
