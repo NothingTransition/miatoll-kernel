@@ -1,0 +1,162 @@
+name: Build Miatoll flashable kernel
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - '**'
+    paths:
+      - 'arch/arm64/configs/vendor/xiaomi/miatoll_defconfig'
+      - 'arch/arm64/**'
+      - 'drivers/**'
+      - 'fs/**'
+      - 'include/**'
+      - 'kernel/**'
+      - 'mm/**'
+      - 'security/**'
+      - 'anykernel.sh'
+      - '.github/workflows/build-flashable.yml'
+
+# The release step is gated by the [publish-release] commit marker below.
+# Normal source pushes retain the same build behavior and do not publish releases.
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ARM64 kernel and AnyKernel3 ZIP
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc bison build-essential ccache flex gawk gcc-aarch64-linux-gnu \
+            gcc-arm-linux-gnueabi git libelf-dev libssl-dev lld lz4 wget zlib1g-dev zstd
+
+      - name: Install Android-compatible Clang
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/clang"
+          git clone --depth=1 https://github.com/Neutron-Toolchains/antman.git /tmp/antman
+          cd "$GITHUB_WORKSPACE/clang"
+          bash /tmp/antman/antman -S
+          test -x "$GITHUB_WORKSPACE/clang/bin/clang" || {
+            echo 'Neutron clang was not installed at clang/bin/clang' >&2
+            find "$GITHUB_WORKSPACE/clang" -maxdepth 3 -type f -name clang -print >&2
+            exit 1
+          }
+
+      - name: Configure miatoll
+        env:
+          ARCH: arm64
+          CROSS_COMPILE: aarch64-linux-gnu-
+          CROSS_COMPILE_ARM32: arm-linux-gnueabi-
+          CLANG_TRIPLE: aarch64-linux-gnu-
+        run: |
+          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
+          make O=out ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
+            CROSS_COMPILE_ARM32="$CROSS_COMPILE_ARM32" \
+            CLANG_TRIPLE="$CLANG_TRIPLE" CC=clang \
+            vendor/xiaomi/miatoll_defconfig
+
+          # The checked-in defconfig retains the original optimization choice,
+          # but this artifact must be portable across Android clang releases and
+          # GitHub runner memory limits.  Polly and LTO are optional optimizers;
+          # none of the KernelSU/SUSFS/NoMount/BPF features depend on them.
+          scripts/config --file out/.config --disable LLVM_POLLY
+          scripts/config --file out/.config --disable LTO_CLANG
+          scripts/config --file out/.config --disable LTO
+          scripts/config --file out/.config --disable THINLTO
+          scripts/config --file out/.config --disable RELR
+          make O=out ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
+            CROSS_COMPILE_ARM32="$CROSS_COMPILE_ARM32" \
+            CLANG_TRIPLE="$CLANG_TRIPLE" CC=clang olddefconfig
+
+      - name: Build kernel image
+        id: build
+        continue-on-error: false
+        env:
+          ARCH: arm64
+          CROSS_COMPILE: aarch64-linux-gnu-
+          CROSS_COMPILE_ARM32: arm-linux-gnueabi-
+          CLANG_TRIPLE: aarch64-linux-gnu-
+        run: |
+          set -o pipefail
+          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
+          make -j"$(nproc)" O=out ARCH="$ARCH" \
+            CROSS_COMPILE="$CROSS_COMPILE" \
+            CROSS_COMPILE_ARM32="$CROSS_COMPILE_ARM32" \
+            CLANG_TRIPLE="$CLANG_TRIPLE" CC=clang LD=ld.lld \
+            AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump READELF=llvm-readelf STRIP=llvm-strip \
+            LLVM_IAS=1 KBUILD_BUILD_USER=github KBUILD_BUILD_HOST=actions \
+            Image.gz 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+
+          test -s out/arch/arm64/boot/Image.gz
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: miatoll-build-log-${{ github.sha }}
+          if-no-files-found: warn
+          path: build.log
+
+      - name: Report build failure
+        if: failure()
+        run: |
+          if [ -s build.log ]; then
+            python3 - <<'PY'
+          from pathlib import Path
+          import re
+          lines = Path('build.log').read_text(errors='replace').splitlines()
+          rx = re.compile(r'(error:|fatal error|Error [0-9]+|undefined reference|\*\*\*)', re.I)
+          matches = [line for line in lines if rx.search(line)]
+          text = '\n'.join(matches[-120:]) or '\n'.join(lines[-120:])
+          text = text[-12000:].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print('::error file=.github/workflows/build-flashable.yml,line=1::' + text)
+          PY
+          fi
+
+      - name: Prepare AnyKernel3 package
+        run: |
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AK3
+          cp anykernel.sh out/arch/arm64/boot/Image.gz AK3/
+          cd AK3
+          zip -r9 "$GITHUB_WORKSPACE/Miatoll-KernelSU-SUSFS-${GITHUB_SHA::7}.zip" . \
+            -x '.git/*' '.github/*' 'README.md' '*placeholder*'
+
+      - name: Upload flashable ZIP and raw kernel
+        uses: actions/upload-artifact@v4
+        with:
+          name: miatoll-kernelsu-susfs-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            Miatoll-KernelSU-SUSFS-*.zip
+            out/arch/arm64/boot/Image.gz
+            out/.config
+
+      - name: Publish GitHub prerelease
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-release]')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="miatoll-${GITHUB_SHA::7}"
+          zip="Miatoll-KernelSU-SUSFS-${GITHUB_SHA::7}.zip"
+          notes=$(cat <<'EOF'
+          Flashable AnyKernel3 build for Xiaomi miatoll family (curtana, miatoll, joyeuse, excalibur, gram).
+
+          Kernel stack: backslashxx KernelSU v3.3.0+ / 32630c, SUSFS v2.3.0, NoMount built-in, and BRENE-compatible SUSFS support.
+
+          This is a testing release. Back up the current boot image before flashing and verify boot on the exact device/ROM combination.
+          EOF
+          )
+          gh release create "$tag" "$zip" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Miatoll KernelSU/SUSFS ${GITHUB_SHA::7}" \
+            --prerelease \
+            --notes "$notes"
