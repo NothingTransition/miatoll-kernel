@@ -17,8 +17,10 @@ on:
       - 'anykernel.sh'
       - '.github/workflows/build-flashable.yml'
 
+# The release step is gated by the [publish-release] commit marker below.
+# Normal source pushes retain the same build behavior and do not publish releases.
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -136,3 +138,25 @@ jobs:
             Miatoll-KernelSU-SUSFS-*.zip
             out/arch/arm64/boot/Image.gz
             out/.config
+
+      - name: Publish GitHub prerelease
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-release]')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="miatoll-${GITHUB_SHA::7}"
+          zip="Miatoll-KernelSU-SUSFS-${GITHUB_SHA::7}.zip"
+          notes=$(cat <<'EOF'
+          Flashable AnyKernel3 build for Xiaomi miatoll family (curtana, miatoll, joyeuse, excalibur, gram).
+
+          Kernel stack: backslashxx KernelSU v3.3.0+ / 32630c, SUSFS v2.3.0, NoMount built-in, and BRENE-compatible SUSFS support.
+
+          This is a testing release. Back up the current boot image before flashing and verify boot on the exact device/ROM combination.
+          EOF
+          )
+          gh release create "$tag" "$zip" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Miatoll KernelSU/SUSFS ${GITHUB_SHA::7}" \
+            --prerelease \
+            --notes "$notes"
