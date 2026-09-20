@@ -205,7 +205,7 @@ int vfs_statx_fd(unsigned int fd, struct kstat *stat,
 }
 EXPORT_SYMBOL(vfs_statx_fd);
 
-#ifdef CONFIG_KSU
+#if defined(CONFIG_KSU) && !defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE) && !defined(CONFIG_KSU_HACK_ARM64_BRANCH_LINK)
 extern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);
 #endif
 
@@ -231,7 +231,7 @@ int vfs_statx(int dfd, const char __user *filename, int flags,
 	int error = -EINVAL;
 	unsigned int lookup_flags = LOOKUP_FOLLOW | LOOKUP_AUTOMOUNT;
 
-#ifdef CONFIG_KSU
+#if defined(CONFIG_KSU) && !defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE) && !defined(CONFIG_KSU_HACK_ARM64_BRANCH_LINK)
 	ksu_handle_stat(&dfd, &filename, &flags);
 #endif
 	if ((flags & ~(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT |
@@ -424,7 +424,7 @@ SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
 	struct kstat stat;
 	int error;
 
-#ifdef CONFIG_KSU
+#if defined(CONFIG_KSU) && !defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE) && !defined(CONFIG_KSU_HACK_ARM64_BRANCH_LINK)
 	extern int ksu_handle_stat(int *, const char __user **, int *);
 	ksu_handle_stat(&dfd, &filename, &flag);
 #endif
@@ -589,7 +589,7 @@ SYSCALL_DEFINE4(fstatat64, int, dfd, const char __user *, filename,
 	struct kstat stat;
 	int error;
 
-#ifdef CONFIG_KSU
+#if defined(CONFIG_KSU) && !defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE) && !defined(CONFIG_KSU_HACK_ARM64_BRANCH_LINK)
 	extern int ksu_handle_stat(int *, const char __user **, int *);
 	ksu_handle_stat(&dfd, &filename, &flag);
 #endif
