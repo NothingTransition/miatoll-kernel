@@ -335,14 +335,24 @@ typedef unsigned __int128 uint128_t;
 #endif
 
 /**
- * memcpy_inline / memset_inline
+ * memcmp_inline / memcpy_inline / memset_inline
  *
  * - guaranteed inline builtin routines
+ * - https://github.com/llvm/llvm-project/blob/main/libc/docs/dev/builtin_compatibility.md
  * - fallback to builtin + assert for constexpr sizes
  *
  * NOTE:
- * 	- memcpy_inline/memset_inline IR generation tends to fail on older clang
+ *	- IR generation tends to fail on older clang, we lock this to 17+
  */
+#if __has_builtin(__builtin_memcmp_inline) && defined(__clang__) && (__clang_major__ >= 17)
+#define memcmp_inline	__builtin_memcmp_inline
+#else
+#define memcmp_inline(cs, ct, count) ({			\
+	static_assert(__builtin_constant_p(count));\
+	__builtin_memcmp((cs), (ct), (count));		\
+})
+#endif
+
 #if __has_builtin(__builtin_memcpy_inline) && defined(__clang__) && (__clang_major__ >= 17)
 #define memcpy_inline	__builtin_memcpy_inline
 #else

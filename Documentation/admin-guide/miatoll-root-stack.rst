@@ -15,8 +15,8 @@ Integrated components
 
 The following upstream snapshots are vendored or applied in-tree:
 
-* ``backslashxx/KernelSU``: commit
-  ``5a2eee6a851493f39310918386e094cb03c4397b`` (KernelSU version code
+* ``backslashxx/KernelSU``: ``v3.3.0+`` / tag ``32630c`` at commit
+  ``0b2fa25b7e021215f82d274610239525f45d2c37`` (KernelSU version code
   ``32630`` in its vendored build metadata).
 * ``nanix06/susfs4ksu``: ``kernel-4.14`` at commit
   ``63a76f2aa1ae4245f7831e3afd479c26baef14ff``.  Its 4.14 integration patch

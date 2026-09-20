@@ -54,7 +54,7 @@ static __always_inline int ksu_hide_setprocattr_inline(const char *name, void *v
 		return 0;
 
 	constexpr char c[] = "current";
-	if (!!__builtin_memcmp(name, c, sizeof(c)))
+	if (!!memcmp_inline(name, c, sizeof(c)))
 		return 0;
 
 	char *str = (char *)value;
