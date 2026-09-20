@@ -61,20 +61,27 @@ jobs:
             vendor/xiaomi/miatoll_defconfig
 
           # The checked-in defconfig retains the original optimization choice,
-          # but this build must work with a stock Android clang toolchain.
-          # Polly is optional and its private flags differ across clang releases.
+          # but this artifact must be portable across Android clang releases and
+          # GitHub runner memory limits.  Polly and LTO are optional optimizers;
+          # none of the KernelSU/SUSFS/NoMount/BPF features depend on them.
           scripts/config --file out/.config --disable LLVM_POLLY
+          scripts/config --file out/.config --disable LTO_CLANG
+          scripts/config --file out/.config --disable LTO
+          scripts/config --file out/.config --disable THINLTO
           make O=out ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
             CROSS_COMPILE_ARM32="$CROSS_COMPILE_ARM32" \
             CLANG_TRIPLE="$CLANG_TRIPLE" CC=clang olddefconfig
 
       - name: Build kernel and device trees
+        id: build
+        continue-on-error: false
         env:
           ARCH: arm64
           CROSS_COMPILE: aarch64-linux-gnu-
           CROSS_COMPILE_ARM32: arm-linux-gnueabi-
           CLANG_TRIPLE: aarch64-linux-gnu-
         run: |
+          set -o pipefail
           export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
           make -j"$(nproc)" O=out ARCH="$ARCH" \
             CROSS_COMPILE="$CROSS_COMPILE" \
@@ -83,9 +90,17 @@ jobs:
             AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy \
             OBJDUMP=llvm-objdump READELF=llvm-readelf STRIP=llvm-strip \
             LLVM_IAS=1 KBUILD_BUILD_USER=github KBUILD_BUILD_HOST=actions \
-            Image.gz dtbs
+            Image.gz dtbs 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
 
           test -s out/arch/arm64/boot/Image.gz
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: miatoll-build-log-${{ github.sha }}
+          if-no-files-found: warn
+          path: build.log
 
       - name: Prepare AnyKernel3 package
         run: |
