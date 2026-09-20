@@ -103,6 +103,18 @@ jobs:
           if-no-files-found: warn
           path: build.log
 
+      - name: Report build failure
+        if: failure()
+        run: |
+          if [ -s build.log ]; then
+            python3 - <<'PY'
+          from pathlib import Path
+          text = Path('build.log').read_text(errors='replace')[-12000:]
+          text = text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print('::error file=.github/workflows/build-flashable.yml,line=1::' + text)
+          PY
+          fi
+
       - name: Prepare AnyKernel3 package
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AK3
