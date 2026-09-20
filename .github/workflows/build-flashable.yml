@@ -109,8 +109,12 @@ jobs:
           if [ -s build.log ]; then
             python3 - <<'PY'
           from pathlib import Path
-          text = Path('build.log').read_text(errors='replace')[-12000:]
-          text = text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          import re
+          lines = Path('build.log').read_text(errors='replace').splitlines()
+          rx = re.compile(r'(error:|fatal error|Error [0-9]+|undefined reference|\*\*\*)', re.I)
+          matches = [line for line in lines if rx.search(line)]
+          text = '\n'.join(matches[-120:]) or '\n'.join(lines[-120:])
+          text = text[-12000:].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
           print('::error file=.github/workflows/build-flashable.yml,line=1::' + text)
           PY
           fi
